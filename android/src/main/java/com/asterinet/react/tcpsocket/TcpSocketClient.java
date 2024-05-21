@@ -84,7 +84,8 @@ class TcpSocketClient extends TcpSocket {
             ssf = SSLCertificateHelper.createBlindSocketFactory();
         } else {
             final String customTlsCert = tlsOptions.hasKey("ca") ? tlsOptions.getString("ca") : null;
-            ssf = customTlsCert != null ? SSLCertificateHelper.createCustomTrustedSocketFactory(context, customTlsCert) : (SSLSocketFactory) SSLSocketFactory.getDefault();
+            final String customTlsKey = tlsOptions.hasKey("caKey") ? tlsOptions.getString("caKey") : null;
+            ssf = customTlsCert != null ? SSLCertificateHelper.createCustomTrustedSocketFactory(context, customTlsCert, customTlsKey) : (SSLSocketFactory) SSLSocketFactory.getDefault();
         }
         return ssf;
     }

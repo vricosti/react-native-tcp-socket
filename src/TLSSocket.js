@@ -20,6 +20,7 @@ export default class TLSSocket extends Socket {
         /** @private */
         this._options = { ...options };
         if (this._options.ca) this._options.ca = Image.resolveAssetSource(this._options.ca).uri;
+        if (this._options.caKey) this._options.caKey = Image.resolveAssetSource(this._options.caKey).uri;
         /** @private */
         this._socket = socket;
         // @ts-ignore

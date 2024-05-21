@@ -25,5 +25,6 @@ export default class TLSSocket extends Socket {
 }
 export type TLSSocketOptions = {
     ca?: any;
+    caKey?: any;
 };
 import Socket from "./Socket";
