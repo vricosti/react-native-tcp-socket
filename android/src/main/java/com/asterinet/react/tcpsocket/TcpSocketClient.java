@@ -2,6 +2,7 @@ package com.asterinet.react.tcpsocket;
 
 import android.content.Context;
 import android.net.Network;
+import android.util.Log;
 
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableArray;
@@ -20,6 +21,7 @@ import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 class TcpSocketClient extends TcpSocket {
+    private static final String TAG = "TcpSocketClient";
     private final ExecutorService listenExecutor;
     private final ExecutorService writeExecutor;
     private final TcpEventListener receiverListener;
@@ -41,6 +43,7 @@ class TcpSocketClient extends TcpSocket {
 
     public void connect(Context context, String address, final Integer port, ReadableMap options, Network network, ReadableMap tlsOptions) throws IOException, GeneralSecurityException {
         if (socket != null) throw new IOException("Already connected");
+        Log.d(TAG, "Connecting socket " + getId() + " to " + address + ":" + port);
         if (tlsOptions != null) {
             SSLSocketFactory ssf = getSSLSocketFactory(context, tlsOptions);
             socket = ssf.createSocket();
@@ -65,17 +68,36 @@ class TcpSocketClient extends TcpSocket {
         final int localPort = options.hasKey("localPort") ? options.getInt("localPort") : 0;
         // bind
         socket.bind(new InetSocketAddress(localInetAddress, localPort));
-        socket.connect(new InetSocketAddress(remoteInetAddress, port));
-        if (socket instanceof SSLSocket) ((SSLSocket) socket).startHandshake();
+        try {
+            socket.connect(new InetSocketAddress(remoteInetAddress, port));
+            if (socket instanceof SSLSocket) {
+                Log.d(TAG, "Starting SSL handshake for socket " + getId());
+                ((SSLSocket) socket).startHandshake();
+                Log.d(TAG, "SSL handshake completed for socket " + getId());
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Connect/handshake failed for socket " + getId() + ": " + e.getMessage());
+            receiverListener.onError(getId(), e);
+            throw e;
+        }
         startListening();
     }
 
     public void startTLS(Context context, ReadableMap tlsOptions) throws IOException, GeneralSecurityException {
         if (socket instanceof SSLSocket) return;
         SSLSocketFactory ssf = getSSLSocketFactory(context, tlsOptions);
+        Log.d(TAG, "Starting TLS for socket " + getId());
         SSLSocket sslSocket = (SSLSocket) ssf.createSocket(socket, socket.getInetAddress().getHostAddress(), socket.getPort(), true);
         sslSocket.setUseClientMode(true);
-        sslSocket.startHandshake();
+        try {
+            sslSocket.startHandshake(); // Initiate SSL handshake
+            Log.d(TAG, "TLS handshake completed for socket " + getId());
+        } catch (IOException e) {
+            // Catch SSL handshake errors (e.g., certificate rejection)
+            Log.e(TAG, "TLS handshake failed for socket " + getId() + ": " + e.getMessage());
+            receiverListener.onError(getId(), e);
+            throw e; // Re-throw to maintain exception flow
+        }
         socket = sslSocket;
     }
 
@@ -141,6 +163,7 @@ class TcpSocketClient extends TcpSocket {
     }
 
     public void startListening() {
+        Log.d(TAG, "Starting listener for socket " + getId());
         receiverTask = new TcpReceiverTask(this, receiverListener);
         listenExecutor.execute(receiverTask);
     }
@@ -185,12 +208,16 @@ class TcpSocketClient extends TcpSocket {
             // close the socket
             if (socket != null && !socket.isClosed()) {
                 closed = true;
+                Log.d(TAG, "Closing socket " + getId());
                 socket.close();
                 receiverListener.onClose(getId(), null);
                 socket = null;
+                Log.d(TAG, "Socket " + getId() + " closed successfully");
             }
         } catch (IOException e) {
+            Log.e(TAG, "Error closing socket " + getId() + ": " + e.getMessage());
             receiverListener.onClose(getId(), e);
+            receiverListener.onError(getId(), e); // Emit error if close fails
         }
     }
 
@@ -249,17 +276,23 @@ class TcpSocketClient extends TcpSocket {
             byte[] buffer = new byte[16384];
             try {
                 BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+                Log.d(TAG, "Starting read loop for socket " + socketId);
                 while (!socket.isClosed()) {
                     int bufferCount = in.read(buffer);
                     waitIfPaused();
                     if (bufferCount > 0) {
                         receiverListener.onData(socketId, Arrays.copyOfRange(buffer, 0, bufferCount));
                     } else if (bufferCount == -1) {
+                        Log.d(TAG, "EOF detected, destroying socket " + socketId);
                         clientSocket.destroy();
                     }
                 }
+                Log.d(TAG, "Read loop ended normally for socket " + socketId);
             } catch (IOException | InterruptedException ioe) {
-                if (receiverListener != null && !socket.isClosed() && !clientSocket.closed) {
+                // We remove !socket.isClosed() condition since we want to emit error even if socket is closed, 
+                // unless explicitly closed by clientSocket
+                Log.e(TAG, "Read error for socket " + socketId + ": " + ioe.getMessage() + ", closed: " + socket.isClosed());
+                if (receiverListener != null) {
                     receiverListener.onError(socketId, ioe);
                 }
             }

@@ -453,6 +453,7 @@ export default class Socket extends EventEmitter {
         this._unregisterEvents();
         this._dataListener = this._eventEmitter.addListener('data', this._onDeviceDataEvt);
         this._errorListener = this._eventEmitter.addListener('error', (evt) => {
+            console.log('Socket.js error event for ID ' + evt.id + ': ' + evt.error);
             if (evt.id !== this._id) return;
             this.destroy();
             this.emit('error', evt.error);
